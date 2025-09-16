@@ -1,0 +1,327 @@
+{
+  "name": "Workflow реализации памяти и контекста",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 5,
+              "unit": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "Cron",
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Симуляция получения запроса на работу с контекстом\nconst simulatedRequest = {\n userId: \"123456789\",\n  action: \"load_context\",\n  sessionId: \"session_\" + new Date().getTime()\n};\n\nreturn [\n  {\n    json: simulatedRequest\n  }\n];"
+      },
+      "id": "Function",
+      "name": "Симуляция входных данных",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "openai",
+        "openAi": {
+          "model": "gpt-4o"
+        },
+        "prompt": "Ты система управления контекстом диалога. Определи, какое действие необходимо выполнить с контекстом на основе запроса пользователя.\n\nВозможные действия:\n1. \"load_context\" - загрузить контекст для пользователя\n2. \"save_context\" - сохранить контекст для пользователя\n3. \"clear_context\" - очистить контекст для пользователя\n4. \"update_context\" - обновить контекст с новой информацией\n\nЗапрос: {{ $json.action }}\n\nОтветь только в формате JSON:\n{\n  \"action\": \"действие\"\n}",
+        "options": {
+          "memory": {
+            "type": "none"
+          }
+        }
+      },
+      "id": "AI Agent",
+      "name": "Определение действия с контекстом",
+      "type": "n8n-nodes-base.aiAgent",
+      "typeVersion": 1,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.DATABASE_URL }}/contexts/{{ $json.userId }}",
+        "headers": {
+          "Authorization": "Bearer {{ $env.DATABASE_API_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "options": {}
+      },
+      "id": "HTTP Request",
+      "name": "Загрузка контекста из БД",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        850,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DATABASE_URL }}/contexts",
+        "headers": {
+          "Authorization": "Bearer {{ $env.DATABASE_API_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\n  \"userId\": \"{{ $json.userId }}\",\n  \"context\": {\n    \"history\": [],\n    \"preferences\": {},\n    \"currentProject\": null\n  },\n  \"createdAt\": \"{{ new Date().toISOString() }}\",\n  \"updatedAt\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "id": "HTTP Request1",
+      "name": "Создание нового контекста",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        850,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Симуляция контекста диалога\nconst dialogContext = [\n  {\n    \"role\": \"user\",\n    \"content\": \"Привет, мне нужна помощь с расчетом допусков.\"\n  },\n  {\n    \"role\": \"assistant\",\n    \"content\": \"Здравствуйте! Я могу помочь вам с расчетом допусков. Пожалуйста, уточните, какие именно допуски вас интересуют и для какой детали.\"\n  },\n  {\n    \"role\": \"user\",\n    \"content\": \"Мне нужна посадка H7 для вала диаметром 30мм.\"\n }\n];\n\n// Добавление новой записи в контекст\nconst newEntry = {\n \"role\": \"assistant\",\n  \"content\": \"Для вала диаметром 30мм с посадкой H7 согласно ГОСТ 25347-82, верхнее отклонение составляет +0.021мм, нижнее отклонение 0мм.\"\n};\n\ndialogContext.push(newEntry);\n\nreturn [\n  {\n    json: {\n      userId: input.json.userId,\n      context: dialogContext,\n      timestamp: new Date().toISOString()\n    }\n  }\n];"
+      },
+      "id": "Function1",
+      "name": "Формирование контекста диалога",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.DATABASE_URL }}/contexts/{{ $json.userId }}",
+        "headers": {
+          "Authorization": "Bearer {{ $env.DATABASE_API_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\n  \"context\": {\n    \"history\": {{ $json.context }},\n    \"updatedAt\": \"{{ new Date().toISOString() }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "HTTP Request2",
+      "name": "Сохранение контекста в БД",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Симуляция очистки контекста\nconst clearedContext = {\n  \"history\": [],\n  \"preferences\": {},\n  \"currentProject\": null\n};\n\nreturn [\n  {\n    json: {\n      userId: input.json.userId,\n      clearedContext: clearedContext,\n      message: \"Контекст успешно очищен\"\n    }\n }\n];"
+      },
+      "id": "Function2",
+      "name": "Очистка контекста",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $env.DATABASE_URL }}/contexts/{{ $json.userId }}",
+        "headers": {
+          "Authorization": "Bearer {{ $env.DATABASE_API_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "options": {}
+      },
+      "id": "HTTP Request3",
+      "name": "Удаление контекста из БД",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1650,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Формирование ответа о результате операции с контекстом\nlet responseMessage = \"\";\n\nswitch(input.json.action) {\n  case \"load_context\":\n    responseMessage = \"Контекст успешно загружен\";\n    break;\n  case \"save_context\":\n    responseMessage = \"Контекст успешно сохранен\";\n    break;\n  case \"clear_context\":\n    responseMessage = \"Контекст успешно очищен\";\n    break;\n  case \"update_context\":\n    responseMessage = \"Контекст успешно обновлен\";\n    break;\n  default:\n    responseMessage = \"Неизвестное действие с контекстом\";\n}\n\nreturn [\n  {\n    json: {\n      userId: input.json.userId,\n      action: input.json.action,\n      message: responseMessage,\n      timestamp: new Date().toISOString()\n    }\n }\n];"
+      },
+      "id": "Function3",
+      "name": "Формирование ответа",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "botToken",
+        "botToken": "={{ $env.TELEGRAM_BOT_TOKEN }}",
+        "chatId": "={{ $json[\"userId\"] }}",
+        "text": "={{ $json[\"message\"] }}",
+        "additionalFields": {}
+      },
+      "id": "Telegram",
+      "name": "Отправка ответа",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        1650,
+        350
+      ]
+    }
+  ],
+  "connections": {
+    "Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "Симуляция входных данных",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Симуляция входных данных": {
+      "main": [
+        [
+          {
+            "node": "Определение действия с контекстом",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Определение действия с контекстом": {
+      "main": [
+        [
+          {
+            "node": "Загрузка контекста из БД",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Создание нового контекста",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Формирование контекста диалога",
+            "type": "main",
+            "index": 2
+          },
+          {
+            "node": "Очистка контекста",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Загрузка контекста из БД": {
+      "main": [
+        [
+          {
+            "node": "Формирование ответа",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Создание нового контекста": {
+      "main": [
+        [
+          {
+            "node": "Формирование ответа",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Формирование контекста диалога": {
+      "main": [
+        [
+          {
+            "node": "Сохранение контекста в БД",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сохранение контекста в БД": {
+      "main": [
+        [
+          {
+            "node": "Формирование ответа",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Очистка контекста": {
+      "main": [
+        [
+          {
+            "node": "Удаление контекста из БД",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Удаление контекста из БД": {
+      "main": [
+        [
+          {
+            "node": "Формирование ответа",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Формирование ответа": {
+      "main": [
+        [
+          {
+            "node": "Отправка ответа",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0"
+}

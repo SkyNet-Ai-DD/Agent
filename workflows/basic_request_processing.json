@@ -1,0 +1,174 @@
+{
+  "name": "Базовый workflow обработки запроса",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "botToken",
+        "botToken": "={{ $env.TELEGRAM_BOT_TOKEN }}",
+        "updates": [
+          "message"
+        ],
+        "options": {}
+      },
+      "id": "Telegram Trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Извлечение текста сообщения\nconst messageText = input.json.message?.text || '';\n\n// Извлечение идентификатора пользователя\nconst userId = input.json.message?.from?.id || '';\n\n// Извлечение имени пользователя\nconst userName = input.json.message?.from?.first_name || '';\n\n// Нормализация текста запроса\nconst normalizedText = messageText.trim();\n\nreturn [\n  {\n    json: {\n      userId: userId,\n      userName: userName,\n      query: normalizedText,\n      timestamp: new Date().toISOString()\n    }\n  }\n];"
+      },
+      "id": "Function",
+      "name": "Предобработка запроса",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "openai",
+        "openAi": {
+          "model": "gpt-4o"
+        },
+        "prompt": "Ты классификатор запросов для инженерного ассистента. Проанализируй следующий запрос пользователя и определи его тип. Возможные типы запросов:\n\n1. \"technical_question\" - технический вопрос, требующий знаний стандартов, расчетов или инженерных принципов\n2. \"documentation_request\" - запрос на создание документации, спецификаций или чертежей\n3. \"standard_search\" - поиск информации в стандартах (ГОСТ, СНиП и т.д.)\n4. \"cad_request\" - запрос на создание или изменение CAD-моделей\n5. \"general_inquiry\" - общий вопрос или приветствие\n\nЗапрос пользователя: {{ $json.query }}\n\nОтветь только меткой типа запроса в формате JSON:\n{\n  \"label\": \"тип_запроса\"\n}",
+        "options": {
+          "memory": {
+            "type": "none"
+          }
+        }
+      },
+      "id": "AI Agent",
+      "name": "Классификация запроса",
+      "type": "n8n-nodes-base.aiAgent",
+      "typeVersion": 1,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "string": [
+            {
+              "value1": "={{ $json[\"label\"] }}",
+              "operation": "equals",
+              "value2": "technical_question"
+            }
+          ]
+        }
+      },
+      "id": "Switch",
+      "name": "Маршрутизация",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Формирование ответа для пользователя\nconst responseText = `Получен запрос типа: ${input.json.label}\n\nЗапрос: ${input.json.query}\n\nОбрабатываю ваш запрос...`;\n\nreturn [\n  {\n    json: {\n      userId: input.json.userId,\n      response: responseText,\n      timestamp: new Date().toISOString()\n    }\n }\n];"
+      },
+      "id": "Function1",
+      "name": "Формирование ответа",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1050,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "botToken",
+        "botToken": "={{ $env.TELEGRAM_BOT_TOKEN }}",
+        "chatId": "={{ $json[\"userId\"] }}",
+        "text": "={{ $json[\"response\"] }}",
+        "additionalFields": {}
+      },
+      "id": "Telegram",
+      "name": "Отправка ответа",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Предобработка запроса",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Предобработка запроса": {
+      "main": [
+        [
+          {
+            "node": "Классификация запроса",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Классификация запроса": {
+      "main": [
+        [
+          {
+            "node": "Маршрутизация",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Маршрутизация": {
+      "main": [
+        [
+          {
+            "node": "Формирование ответа",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Формирование ответа": {
+      "main": [
+        [
+          {
+            "node": "Отправка ответа",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0"
+}

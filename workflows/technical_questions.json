@@ -1,0 +1,235 @@
+{
+  "name": "Workflow для ответов на технические вопросы",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 1,
+              "unit": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "Cron",
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Симуляция получения запроса от базового workflow\nconst simulatedRequest = {\n  userId: \"123456789\",\n  query: \"Какие допуски формы и расположения поверхностей регламентирует ГОСТ 24641-81?\",\n  context: [\n    {\n      role: \"user\",\n      content: \"Привет, мне нужна информация о допусках формы.\"\n    },\n    {\n      role: \"assistant\",\n      content: \"Здравствуйте! Я могу помочь вам с информацией о допусках формы. Пожалуйста, уточните, какой именно стандарт вас интересует.\"\n    }\n  ]\n};\n\nreturn [\n  {\n    json: simulatedRequest\n  }\n];"
+      },
+      "id": "Function",
+      "name": "Симуляция входных данных",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.VECTOR_DB_URL }}/search",
+        "headers": {
+          "Authorization": "Bearer {{ $env.VECTOR_DB_API_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\n  \"query\": \"{{ $json.query }}\",\n  \"top_k\": 5\n}",
+        "options": {}
+      },
+      "id": "HTTP Request",
+      "name": "Векторный поиск",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Извлечение результатов поиска\nconst searchResults = input.json.results || [];\n\n// Формирование контекста для LLM\nlet context = \"\";\nsearchResults.forEach((result, index) => {\n  context += `\\n\\nИсточник ${index + 1}: ${result.title || 'Без названия'}\\n`;\n  context += `Содержание: ${result.content || 'Нет содержания'}\\n`;\n context += `Релевантность: ${result.score || 'Не указана'}\\n`;\n});\n\n// Добавление истории диалога\nconst dialogHistory = input.json.context || [];\nlet dialogContext = \"\";\nif (dialogHistory.length > 0) {\n  dialogContext = \"\\n\\nИстория диалога:\\n\";\n dialogHistory.forEach(entry => {\n    dialogContext += `${entry.role}: ${entry.content}\\n`;\n  });\n}\n\nreturn [\n  {\n    json: {\n      userId: input.json.userId,\n      query: input.json.query,\n      searchContext: context,\n      dialogContext: dialogContext\n    }\n  }\n];"
+      },
+      "id": "Function1",
+      "name": "Формирование контекста",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "openai",
+        "openAi": {
+          "model": "gpt-4o"
+        },
+        "prompt": "Ты инженер-консультант в области машиностроения. Используй только предоставленную документацию для ответа на вопрос пользователя. Отвечай строго по существу, ссылайся на конкретные разделы стандартов и технической литературы.\n\nВопрос пользователя: {{ $json.query }}\n\nНайденная документация:{{ $json.searchContext }}\n\n{{ $json.dialogContext }}\n\nОтветь на вопрос пользователя, используя только информацию из найденной документации. Если в документации нет достаточной информации, честно об этом сообщи.",
+        "options": {
+          "memory": {
+            "type": "none"
+          }
+        }
+      },
+      "id": "AI Agent",
+      "name": "Генерация ответа",
+      "type": "n8n-nodes-base.aiAgent",
+      "typeVersion": 1,
+      "position": [
+        1050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.WEB_SEARCH_API_URL }}",
+        "headers": {
+          "Authorization": "Bearer {{ $env.WEB_SEARCH_API_KEY }}"
+        },
+        "qs": {
+          "q": "={{ $json.query }}",
+          "count": "3"
+        },
+        "options": {}
+      },
+      "id": "HTTP Request1",
+      "name": "Веб-поиск",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Получение результата от AI Agent\nconst aiResponse = input.json.response || \"Нет ответа от AI\";\n\n// Получение результатов веб-поиска\nconst webResults = input.json.webResults || [];\n\n// Формирование дополнительного контекста из веб-поиска\nlet webContext = \"\";\nif (webResults.length > 0) {\n  webContext = \"\\n\\nДополнительная информация из веб-поиска:\\n\";\n  webResults.forEach((result, index) => {\n    webContext += `${index + 1}. ${result.title || 'Без названия'}: ${result.snippet || 'Нет описания'}\\n`;\n    if (result.url) {\n      webContext += `   Ссылка: ${result.url}\\n`;\n    }\n  });\n}\n\n// Комбинирование ответа AI и результатов веб-поиска\nconst finalResponse = aiResponse + webContext;\n\nreturn [\n  {\n    json: {\n      userId: input.json.userId,\n      finalResponse: finalResponse\n    }\n  }\n];"
+      },
+      "id": "Function2",
+      "name": "Интеграция результатов",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "botToken",
+        "botToken": "={{ $env.TELEGRAM_BOT_TOKEN }}",
+        "chatId": "={{ $json[\"userId\"] }}",
+        "text": "={{ $json[\"finalResponse\"] }}",
+        "additionalFields": {}
+      },
+      "id": "Telegram",
+      "name": "Отправка ответа",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        1650,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "Симуляция входных данных",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Симуляция входных данных": {
+      "main": [
+        [
+          {
+            "node": "Векторный поиск",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Векторный поиск": {
+      "main": [
+        [
+          {
+            "node": "Формирование контекста",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Формирование контекста": {
+      "main": [
+        [
+          {
+            "node": "Генерация ответа",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Генерация ответа": {
+      "main": [
+        [
+          {
+            "node": "Веб-поиск",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Интеграция результатов",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Веб-поиск": {
+      "main": [
+        [
+          {
+            "node": "Интеграция результатов",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Интеграция результатов": {
+      "main": [
+        [
+          {
+            "node": "Отправка ответа",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0"
+}

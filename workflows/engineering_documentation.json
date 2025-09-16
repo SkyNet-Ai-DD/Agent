@@ -1,0 +1,332 @@
+{
+  "name": "Workflow для работы с конструкторской документацией",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 2,
+              "unit": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "Cron",
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Симуляция получения запроса от базового workflow\nconst simulatedRequest = {\n  userId: \"123456789\",\n  query: \"Создай спецификацию на вал диаметром 30мм с посадкой H7\",\n  parameters: {\n    diameter: 30,\n    tolerance: \"H7\",\n    material: \"Сталь 45\",\n    length: 100\n  }\n};\n\nreturn [\n  {\n    json: simulatedRequest\n  }\n];"
+      },
+      "id": "Function",
+      "name": "Симуляция входных данных",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "openai",
+        "openAi": {
+          "model": "gpt-4o"
+        },
+        "prompt": "Ты инженер-конструктор. Из следующего запроса пользователя извлеки структурированные параметры для создания детали. Запрос: {{ $json.query }}\n\nПредставь результат в формате JSON с полями:\n- diameter: диаметр (число)\n- tolerance: посадка (строка)\n- material: материал (строка)\n- length: длина (число)\n- additionalFeatures: дополнительные особенности (массив строк)\n\nЕсли какие-то параметры не указаны, установи их в null.",
+        "options": {
+          "memory": {
+            "type": "none"
+          }
+        }
+      },
+      "id": "AI Agent",
+      "name": "Извлечение параметров",
+      "type": "n8n-nodes-base.aiAgent",
+      "typeVersion": 1,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.STANDARDS_DB_URL }}/search",
+        "headers": {
+          "Authorization": "Bearer {{ $env.STANDARDS_DB_API_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\n  \"query\": \"посадка {{ $json.tolerance }}\",\n  \"category\": \"tolerances\"\n}",
+        "options": {}
+      },
+      "id": "HTTP Request",
+      "name": "Поиск стандартов по допускам",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        850,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.STANDARDS_DB_URL }}/search",
+        "headers": {
+          "Authorization": "Bearer {{ $env.STANDARDS_DB_API_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\n  \"query\": \"{{ $json.material }}\",\n  \"category\": \"materials\"\n}",
+        "options": {}
+      },
+      "id": "HTTP Request1",
+      "name": "Поиск стандартов по материалам",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        850,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Получение результатов поиска стандартов\nconst toleranceStandards = input.json.toleranceResults || [];\nconst materialStandards = input.json.materialResults || [];\n\n// Формирование спецификации\nconst specification = `# Спецификация детали\\n\\n## Основные параметры\\n- Диаметр: ${input.json.diameter} мм\\n- Посадка: ${input.json.tolerance}\\n- Материал: ${input.json.material}\\n- Длина: ${input.json.length} мм\\n\\n## Стандарты\\n\\n### Допуски и посадки\\n`;\n\nlet toleranceSection = \"\";\ntoleranceStandards.forEach((standard, index) => {\n  toleranceSection += `${index + 1}. ${standard.name || 'Без названия'} (${standard.number || 'Номер не указан'})\\n`;\n  toleranceSection += `   Описание: ${standard.description || 'Нет описания'}\\n\\n`;\n});\n\nconst materialSection = \"### Материалы\\n\";\nlet materialDetails = \"\";\nmaterialStandards.forEach((standard, index) => {\n  materialDetails += `${index + 1}. ${standard.name || 'Без названия'} (${standard.number || 'Номер не указан'})\\n`;\n  materialDetails += `   Описание: ${standard.description || 'Нет описания'}\\n`;\n  materialDetails += `   Свойства: ${standard.properties || 'Нет данных'}\\n\\n`;\n});\n\nconst finalSpecification = specification + toleranceSection + materialSection + materialDetails;\n\nreturn [\n  {\n    json: {\n      userId: input.json.userId,\n      specification: finalSpecification,\n      parameters: input.json\n    }\n  }\n];"
+      },
+      "id": "Function1",
+      "name": "Генерация спецификации",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "={{ $json.specification }}",
+        "options": {
+          "orientation": "portrait",
+          "format": [
+            "A4"
+          ],
+          "margin": {
+            "top": "40",
+            "right": "40",
+            "bottom": "40",
+            "left": "40"
+          }
+        }
+      },
+      "id": "PDF",
+      "name": "Конвертация в PDF",
+      "type": "n8n-nodes-base.pdf",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first();\n\n// Формирование технического задания для САПР\nconst cadTask = {\n  operation: \"create_shaft\",\n  parameters: {\n    diameter: input.json.parameters.diameter,\n    tolerance: input.json.parameters.tolerance,\n    material: input.json.parameters.material,\n    length: input.json.parameters.length,\n    additionalFeatures: input.json.parameters.additionalFeatures || []\n  },\n  userId: input.json.userId,\n  timestamp: new Date().toISOString()\n};\n\nreturn [\n  {\n    json: cadTask\n  }\n];"
+      },
+      "id": "Function2",
+      "name": "Создание чертежа",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CAD_API_URL }}/create_model",
+        "headers": {
+          "Authorization": "Bearer {{ $env.CAD_API_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "body": "={{ $json }}",
+        "options": {}
+      },
+      "id": "HTTP Request2",
+      "name": "Отправка в САПР",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1650,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "googleDrive": {
+          "folderId": "={{ $env.GOOGLE_DRIVE_FOLDER_ID }}"
+        },
+        "fileName": "={{ 'specification_' + $json.userId + '_' + new Date().getTime() + '.pdf' }}",
+        "binaryData": "={{ $binary }}",
+        "options": {
+          "createSubfolder": false,
+          "makePublic": true
+        }
+      },
+      "id": "Google Drive",
+      "name": "Сохранение спецификации",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "botToken",
+        "botToken": "={{ $env.TELEGRAM_BOT_TOKEN }}",
+        "chatId": "={{ $json[\"userId\"] }}",
+        "text": "={{ 'Спецификация создана и сохранена в Google Drive. Ссылка: ' + $json.driveLink }}",
+        "additionalFields": {}
+      },
+      "id": "Telegram",
+      "name": "Отправка ссылки на спецификацию",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        1650,
+        350
+      ]
+    }
+  ],
+  "connections": {
+    "Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "Симуляция входных данных",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Симуляция входных данных": {
+      "main": [
+        [
+          {
+            "node": "Извлечение параметров",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Извлечение параметров": {
+      "main": [
+        [
+          {
+            "node": "Поиск стандартов по допускам",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Поиск стандартов по материалам",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Генерация спецификации",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Поиск стандартов по допускам": {
+      "main": [
+        [
+          {
+            "node": "Генерация спецификации",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Поиск стандартов по материалам": {
+      "main": [
+        [
+          {
+            "node": "Генерация спецификации",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Генерация спецификации": {
+      "main": [
+        [
+          {
+            "node": "Конвертация в PDF",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Создание чертежа",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Конвертация в PDF": {
+      "main": [
+        [
+          {
+            "node": "Сохранение спецификации",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Создание чертежа": {
+      "main": [
+        [
+          {
+            "node": "Отправка в САПР",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сохранение спецификации": {
+      "main": [
+        [
+          {
+            "node": "Отправка ссылки на спецификацию",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0"
+}
